@@ -1,5 +1,15 @@
 extends layout
 
 block content
-  h1= title
-  p Welcome to #{title}
+  h1 Get The Best Bang For Your Buck
+  form(method='post', action='/bangforbuck')
+    |     Zip code:
+    br
+    input(type='text', name='zipcode', value='')
+    br
+    |     Dollar amount:
+    br
+    input(type='number', name='dollarAmount', min="0", value='50')
+    br
+    br
+    input(type='submit', value='Bang!')
