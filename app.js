@@ -36,12 +36,12 @@ server.listen(process.env.PORT, process.env.IP);
 var bangForBuck = require('./api/bang-for-buck');
 
 app.post('/bangforbuck', function(req, res) {
-  console.log(req.body);
+  console.log("req.body: ", req.body);
   let zip = req.body.zipcode;
   let amount = parseInt(req.body.dollarAmount);
-  console.log(bangForBuck.getBangForBuck(zip, amount, function(bestBang) {
-    res.render('best-bang', bestBang);
-  }));
+  bangForBuck.getBangForBuck(zip, amount, function renderBestBang(bang) {
+    res.render('best-bang', bang);
+  });
 });
 //
 
