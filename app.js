@@ -39,8 +39,9 @@ app.post('/bangforbuck', function(req, res) {
   console.log(req.body);
   let zip = req.body.zipcode;
   let amount = parseInt(req.body.dollarAmount);
-  console.log(bangForBuck.getBangForBuck(zip, amount));
-  res.render('best-bang', bangForBuck.getBangForBuck(zip, amount));
+  console.log(bangForBuck.getBangForBuck(zip, amount, function(bestBang) {
+    res.render('best-bang', bestBang);
+  }));
 });
 //
 
