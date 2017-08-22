@@ -33,9 +33,14 @@ var http = require('http');
 var server = http.createServer(app);
 server.listen(process.env.PORT, process.env.IP);
 
+var bangForBuck = require('./api/bang-for-buck');
+
 app.post('/bangforbuck', function(req, res) {
   console.log(req.body);
-  res.sendStatus(200);
+  let zip = req.body.zipcode;
+  let amount = parseInt(req.body.dollarAmount);
+  console.log(bangForBuck.getBangForBuck(zip, amount));
+  res.render('best-bang', bangForBuck.getBangForBuck(zip, amount));
 });
 //
 
