@@ -72,7 +72,14 @@ function eachProductPromise(eachRetailer) {
     let endPoint = duberUrl + "/vendors/" + eachRetailer.id + searchSuffix;
     request(endPoint, function (error, response, body) {
       if (error) { reject(error); return;}
-      fulfill(JSON.parse(response.body).products);
+      //TODO: try/catch on JSON.parse and fulfill on good parsables.
+      let products = JSON.parse(response.body).products
+      if (products) {
+        console.log(products[0]);
+        fulfill(products);
+      } else {
+        fulfill({});
+      }
     });
   });
 }
