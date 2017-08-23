@@ -2,4 +2,12 @@ extends layout
 
 block content
   h1 Get The Best Bang For Your Buck
-  p #{yay}
+  ul
+  each item in cartItems
+    li= item.name
+    ul
+      li= "price: " + item.price
+      li= "THC range: " + item.thc_range[0]
+      li= "Available from: " + item.processor.name
+
+  h2 Money spent: #{moneySpent}

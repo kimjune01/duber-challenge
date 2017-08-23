@@ -5,81 +5,116 @@ let duberUrl = "https://admin.duberex.com"
 module.exports = {
   getBangForBuck: function (zip, amount, callback) {
     //TODO: sanitize input
+
+    var cart = [];
+    var moneyLeft = amount;
     stateFor(zip)
     .then(getRetailers)
-    .then(validate)
-    .then(filterNearby(zip))
-    .then(function removeFurtherThan20(pairs){
-      filtered = pairs.filter(eachPair => eachPair[0] < 20);
-      seconds = filtered.map(function(each) {
-        return each[1]
-      });
-      return seconds;
+    .then(validateRetailers)
+    .then(pairWithDistance(zip))
+    .then(removeFurtherThan20)
+    .then(fetchProducts)
+    .then(validateProducts)
+    .then(sortProductsByBang)
+    .then(function pickFirstThree(productList) {
+      // The full list must have at least 3 different cannabis products
+      // At least 1 product must be purchased from 3 different stores
+      var variousStoreCount = 0;
+      for ( var i = 0; i < productList.length; i ++) {
+        let store = productList[i].processor
+        if (!store) { continue; }
+        let storeID = productList[i].processor.id;
+        if (!storeID) { continue; }
+        if (!cartIncludes(cart, storeID)) {
+          cart.push(productList[i]);
+          variousStoreCount++;
+        }
+        if (amountSpentOn(cart) > amount || variousStoreCount > 3) {
+          break;
+        }
+      }
+      cart.pop();
+      moneyLeft = amount - amountSpentOn(cart);
+      return productList;
     })
-    .then(flattenProducts)
-    .then(function inspect(things){
-        console.log("things[0]" ,things[0]);
-    }).catch(error => {
+    .then(function spendRemainingMoney(productList) {
+      while (amountSpentOn(cart) < amount) {
+        cart.push(productList[0]);
+      }
+      cart.pop();
+      //TODO: implement customized knapsack problem to spend rest of the money later
+      console.log(cart);
+      callback({
+        "cartItems": cart,
+        "moneySpent": amountSpentOn(cart)
+      })
+    })
+    .catch(error => {
       console.log(error)
     })
-    // At least 1 product must be purchased from 3 different stores
-    // The full list must have at least 3 different cannabis products
-    // All products must be Flowers or Pre-Rolls (pre-rolled joints)
-    
-    callback({
-      "yay": "yay",
-      "stores": [
-        {
-          "weedhouse": {
-            "location": {
-              "lat": 49,
-              "long": -109
-            },
-            "products": [
-              {
-                "purple kush": {
-                  "price": 2,
-                  "amount": 1
-                }
-              }
-            ]
-          }
-        }
-      ]
-    })
+
   }
 };
 
-function filterNearby(zip) {
+function cartIncludes(cart, storeID) {
+  var found = false;
+  for(var i = 0; i < cart.length; i++) {
+      if (cart[i].processor.id === storeID) {
+          return true;
+      }
+  }
+  return found;
+}
+function sortProductsByBang(productList) {
+  return new Promise(function (fulfill, reject) {
+    fulfill(productList.sort(function (a,b) {
+      let aBang = bangFor(a);
+      let bBang = bangFor(b);
+      if(aBang > bBang) return -1;
+      if(aBang < bBang) return 1;
+      return 0;
+    }));
+  });
+}
+function removeFurtherThan20(pairs){
+  return new Promise(function (fulfill, reject) {
+    let filtered = pairs.filter(eachPair => eachPair[0] < 20);
+    fulfill(filtered.map(each => each[1]));
+  });
+}
+
+function filterEmpty(products) {
+  return products.filter(each => each !== {});
+}
+
+function pairWithDistance(zip) {
   return function allFilterPromises(retailers) {
-    return Promise.all(distancePromises(zip, retailers));
+    return Promise.all(retailers.map(eachRetailer => distancePairBetween(zip, eachRetailer)));
   }
 }
-//returns an array of products from all the retailers
-function flattenProducts(retailers) {
-  return Promise.all(productPromises(retailers))
+
+function fetchProducts(retailers) {
+  return Promise.all(retailers.map(eachRetailer =>  eachProductPromise(eachRetailer)));
 }
 
-function productPromises(retailers) {
-  return retailers.map(eachRetailer =>  eachProductPromise(eachRetailer));
-}
-
-//example: 
-//https://admin.duberex.com/vendors/748abe3e-fccf-4265-8b87-a5f2d73c52ae/search.json?auto_off=web_online&categories%5B%5D=Flowers%25&include_subcategory=false&limit=50&metadata=1&offset=0&order_by=display_name&sort_order=asc&web_online=true
 function eachProductPromise(eachRetailer) {
   return new Promise(function (fulfill, reject) {
+    // TODO: All products must be Flowers or Pre-Rolls (pre-rolled joints)
     let searchSuffix = "/search.json?auto_off=web_online&categories%5B%5D=Flowers%25&include_subcategory=false&offset=0&order_by=display_name&sort_order=asc&web_online=true";
     let endPoint = duberUrl + "/vendors/" + eachRetailer.id + searchSuffix;
     request(endPoint, function (error, response, body) {
       if (error) { reject(error); return;}
-      //TODO: try/catch on JSON.parse and fulfill on good parsables.
-      let products = JSON.parse(response.body).products
-      if (products) {
-        console.log(products[0]);
-        fulfill(products);
-      } else {
-        fulfill({});
+      try {
+        let products = JSON.parse(response.body).products
+        if (products) {
+          fulfill(products);
+        } else {
+          fulfill({});
+        }
+      } catch(e) {
+         fulfill({});
       }
+      
     });
   });
 }
@@ -94,18 +129,22 @@ function stateFor(zip) {
   });
 }
 
-function validate(retailers) {
-  //console.log("retailers.length: ", retailers.length);
+function validateRetailers(retailers) {
   return new Promise(function(fulfill, reject) {
     let validated = retailers.filter(function (each) {
       return each.zip_code !== null && each.zip_code !== '' && !isNaN(each.zip_code)
     });
     if (validated.length === 0) {
-      reject("There are no valie retailers");
+      reject("There are no valid retailers");
     }
-    // console.log("validated.length: ", validated.length);
     fulfill(validated)
   });
+}
+
+function validateProducts(productLists) {
+  return new Promise(function(fulfill, reject) {
+      fulfill([].concat.apply([], productLists).filter(each => each !== {}));
+  })
 }
 //gets a two-character state from Google's result
 function stateStringFrom(result) {
@@ -122,7 +161,11 @@ function getRetailers(geoState){
     let endPoint = duberUrl + "/retailers.json?state=" + geoState;
     request(endPoint, function (error, response, body) {
       if (error) { reject(error); return; }
-      fulfill(JSON.parse(response.body));
+      try {
+        fulfill(JSON.parse(response.body));
+      } catch (e) {
+        fulfill({});
+      }
     });
   });
 }
@@ -131,23 +174,15 @@ var googleMapsClient = require('@google/maps').createClient({
   key: "AIzaSyC_lcVpls7kY8fSkJKuP85ayS1GBwDw034"
 });
 
-//returns an array of promises for resolving later 
-function distancePromises(zip, retailers) {
-  return retailers.map(eachRetailer => distanceBetween(zip, eachRetailer));
-
-}
-
-//promise to calculate distance between two places in miles...
-function distanceBetween(zip, retailer) {
+//promise to calculate distance between two places in miles
+//returns [Number distance, Retailer]
+function distancePairBetween(zip, retailer) {
   return new Promise(function (fulfill, reject){
     let query = {
       "units": "imperial",
       "origins": zip,
       "destinations": retailer.zip_code,
     };
-
-    fulfill([2, retailer]); 
-    return;
 
     googleMapsClient.distanceMatrix(query, function(err, result) {
       if (err) { reject(err); return; }
@@ -165,5 +200,17 @@ function milesFrom(result) {
   } else {
     return parseInt(firstElement.distance.text.slice(0,-3));
   }
+}
+
+function bangFor(product) {
+  return (product.thc_range.reduce((a,b)=>a+b) / product.thc_range.length) / (product.price);
+}
+
+function amountSpentOn(cart) {
+  var cumSum = 0;
+  for (var i = 0; i < cart.length; i++) {
+    cumSum += cart[i].price;
+  }
+  return cumSum;
 }
 
