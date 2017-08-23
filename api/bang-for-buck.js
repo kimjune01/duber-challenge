@@ -1,21 +1,42 @@
+var Promise = require('promise');
+
 module.exports = {
   getBangForBuck: function (zip, amount, callback) {
     //TODO: sanitize input
     //TODO: if infeasible, return error message
     //call endpoint
     //get retailers
-    getRetailersFor(stateFor(zip), function validateRetailers(retailers) {
-      // then, filter by closest 20 miles
-        //TODO: filter retailers without location...
-      let exampleRetailer = retailers[0];
-      let retailersWithLocation = retailers.filter(function (el) {
+
+    getRetailersFor(stateFor(zip))
+    .then(function validate(retailers) {
+      console.log("retailers.length: ", retailers.length);
+      let validated = retailers.filter(function (el) {
         return el.zip_code !== null && el.zip_code !== '' && !isNaN(el.zip_code)
       });
-      return retailersWithLocation
-    }).then(function distanceFilterRetailers(retailers) {
-      //let sampleDistance = distanceBetween(retailersWithLocation[0], retailersWithLocation[1]);
-      console.log("distanceFilterRetailers retailers", retailers);
+      console.log("validated.length: ", validated.length);
+      return validated
+    }).then(function nearbyFilter(retailers) {
+      //TODO: promise all the retailers' locations...
+      Promise.all(distancePromises(zip, retailers))
+      .then(function addDistances(distances){
+        console.log(distances.reduce(add, 0))
+      })
+    }).catch(error => {
+      console.log(error)
     })
+    // getRetailersFor(stateFor(zip), function validateRetailers(retailers) {
+    //   // then, filter by closest 20 miles
+    //     //TODO: filter retailers without location...
+    //   let exampleRetailer = retailers[0];
+    //   let retailersWithLocation = retailers.filter(function (el) {
+    //     return el.zip_code !== null && el.zip_code !== '' && !isNaN(el.zip_code)
+    //   });
+    //   return retailersWithLocation
+    // }).then(function distanceFilterRetailers(retailers) {
+    //   //let sampleDistance = distanceBetween(retailersWithLocation[0], retailersWithLocation[1]);
+    //   console.log("distanceFilterRetailers retailers", retailers);
+    // })
+
     //TODO: finally promise!
 
     //     At least 1 product must be purchased from 3 different stores
@@ -53,12 +74,13 @@ function stateFor(zip) {
   return "WA"
 }
 
-function getRetailersFor(geoState, callback) {
-  let endPoint = duberUrl + "/retailers.json?state=" + geoState;
-  console.log("endPoint: ", endPoint);
-  request(endPoint, function (error, response, body) {
-    //TODO: handle error gracefully...
-    callback(JSON.parse(response.body));
+function getRetailersFor(geoState){
+  return new Promise(function (fulfill, reject){
+    let endPoint = duberUrl + "/retailers.json?state=" + geoState;
+    request(endPoint, function (error, response, body) {
+      if (error) { reject(error) }
+      fulfill(JSON.parse(response.body));
+    });
   });
 }
 
@@ -66,21 +88,32 @@ var googleMapsClient = require('@google/maps').createClient({
   key: "AIzaSyC_lcVpls7kY8fSkJKuP85ayS1GBwDw034"
 });
 
+//returns an array of promises for resolving later 
+function distancePromises(zip, retailers) {
+  return retailers.map(eachRetailer => distanceBetween(zip, eachRetailer.zip_code));
+}
 
-//distance between two places in miles...
+//promise to calculate distance between two places in miles...
 function distanceBetween(zip1, zip2) {
-  //TODO: ask google for distance!!
-  console.log("googleMapsClient.distanceMatrix:", googleMapsClient.distanceMatrix);
-  let query = {
-    "units": "imperial",
-    "origins": "12345",
-    "destinations": "43214",
-  };
-  let distance = googleMapsClient.distanceMatrix(query, function(result) {
-    console.log("distanceMatrix result:", result);
+  return new Promise(function (fulfill, reject){
+    fulfill(2);
   });
-  console.log("distance:", distance);
-  return 1;
+  //TODO: ask google for distance!!
+  // console.log("googleMapsClient.distanceMatrix:", googleMapsClient.distanceMatrix);
+  // let query = {
+  //   "units": "imperial",
+  //   "origins": "12345",
+  //   "destinations": "43214",
+  // };
+  // let distance = googleMapsClient.distanceMatrix(query, function(result) {
+  //   console.log("distanceMatrix result:", result);
+  // });
+  // console.log("distance:", distance);
+  // return 1;
+}
+
+function add(a, b) {
+    return a + b;
 }
 
 /*
