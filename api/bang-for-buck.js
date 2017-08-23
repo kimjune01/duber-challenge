@@ -1,48 +1,31 @@
 var Promise = require('promise');
+var request = require('request');
+let duberUrl = "https://admin.duberex.com"
 
 module.exports = {
   getBangForBuck: function (zip, amount, callback) {
     //TODO: sanitize input
-    //TODO: if infeasible, return error message
-    //call endpoint
-    //get retailers
-
-    getRetailersFor(stateFor(zip))
-    .then(function validate(retailers) {
-      console.log("retailers.length: ", retailers.length);
-      let validated = retailers.filter(function (el) {
-        return el.zip_code !== null && el.zip_code !== '' && !isNaN(el.zip_code)
+    stateFor(zip)
+    .then(getRetailers)
+    .then(validate)
+    .then(filterNearby(zip))
+    .then(function removeFurtherThan20(pairs){
+      filtered = pairs.filter(eachPair => eachPair[0] < 20);
+      seconds = filtered.map(function(each) {
+        return each[1]
       });
-      console.log("validated.length: ", validated.length);
-      return validated
-    }).then(function nearbyFilter(retailers) {
-      //TODO: promise all the retailers' locations...
-      Promise.all(distancePromises(zip, retailers))
-      .then(function addDistances(distances){
-        console.log(distances.reduce(add, 0))
-      })
+      return seconds;
+    })
+    .then(flattenProducts)
+    .then(function inspect(things){
+        console.log("things[0]" ,things[0]);
     }).catch(error => {
       console.log(error)
     })
-    // getRetailersFor(stateFor(zip), function validateRetailers(retailers) {
-    //   // then, filter by closest 20 miles
-    //     //TODO: filter retailers without location...
-    //   let exampleRetailer = retailers[0];
-    //   let retailersWithLocation = retailers.filter(function (el) {
-    //     return el.zip_code !== null && el.zip_code !== '' && !isNaN(el.zip_code)
-    //   });
-    //   return retailersWithLocation
-    // }).then(function distanceFilterRetailers(retailers) {
-    //   //let sampleDistance = distanceBetween(retailersWithLocation[0], retailersWithLocation[1]);
-    //   console.log("distanceFilterRetailers retailers", retailers);
-    // })
-
-    //TODO: finally promise!
-
-    //     At least 1 product must be purchased from 3 different stores
-    // All stores must be within 20 miles of the user's location
+    // At least 1 product must be purchased from 3 different stores
     // The full list must have at least 3 different cannabis products
     // All products must be Flowers or Pre-Rolls (pre-rolled joints)
+    
     callback({
       "yay": "yay",
       "stores": [
@@ -67,18 +50,71 @@ module.exports = {
   }
 };
 
-var request = require('request');
-let duberUrl = "https://admin.duberex.com"
-
-function stateFor(zip) {
-  return "WA"
+function filterNearby(zip) {
+  return function allFilterPromises(retailers) {
+    return Promise.all(distancePromises(zip, retailers));
+  }
+}
+//returns an array of products from all the retailers
+function flattenProducts(retailers) {
+  return Promise.all(productPromises(retailers))
 }
 
-function getRetailersFor(geoState){
+function productPromises(retailers) {
+  return retailers.map(eachRetailer =>  eachProductPromise(eachRetailer));
+}
+
+//example: 
+//https://admin.duberex.com/vendors/748abe3e-fccf-4265-8b87-a5f2d73c52ae/search.json?auto_off=web_online&categories%5B%5D=Flowers%25&include_subcategory=false&limit=50&metadata=1&offset=0&order_by=display_name&sort_order=asc&web_online=true
+function eachProductPromise(eachRetailer) {
+  return new Promise(function (fulfill, reject) {
+    let searchSuffix = "/search.json?auto_off=web_online&categories%5B%5D=Flowers%25&include_subcategory=false&offset=0&order_by=display_name&sort_order=asc&web_online=true";
+    let endPoint = duberUrl + "/vendors/" + eachRetailer.id + searchSuffix;
+    request(endPoint, function (error, response, body) {
+      if (error) { reject(error); return;}
+      fulfill(JSON.parse(response.body).products);
+    });
+  });
+}
+
+function stateFor(zip) {
+  return new Promise(function (fulfill, reject){
+    let query = { "address": zip };
+    googleMapsClient.geocode(query, function(err, result) {
+      if (err) { reject(err); return; }
+      fulfill(stateStringFrom(result));
+    })
+  });
+}
+
+function validate(retailers) {
+  //console.log("retailers.length: ", retailers.length);
+  return new Promise(function(fulfill, reject) {
+    let validated = retailers.filter(function (each) {
+      return each.zip_code !== null && each.zip_code !== '' && !isNaN(each.zip_code)
+    });
+    if (validated.length === 0) {
+      reject("There are no valie retailers");
+    }
+    // console.log("validated.length: ", validated.length);
+    fulfill(validated)
+  });
+}
+//gets a two-character state from Google's result
+function stateStringFrom(result) {
+  //for simplicity, assume second from last component
+  //FIXME: use regex on 
+  let components = result.json.results[0].address_components
+  let stateString = components[components.length-2].short_name;
+  return stateString;
+}
+
+
+function getRetailers(geoState){
   return new Promise(function (fulfill, reject){
     let endPoint = duberUrl + "/retailers.json?state=" + geoState;
     request(endPoint, function (error, response, body) {
-      if (error) { reject(error) }
+      if (error) { reject(error); return; }
       fulfill(JSON.parse(response.body));
     });
   });
@@ -90,64 +126,37 @@ var googleMapsClient = require('@google/maps').createClient({
 
 //returns an array of promises for resolving later 
 function distancePromises(zip, retailers) {
-  return retailers.map(eachRetailer => distanceBetween(zip, eachRetailer.zip_code));
+  return retailers.map(eachRetailer => distanceBetween(zip, eachRetailer));
+
 }
 
 //promise to calculate distance between two places in miles...
-function distanceBetween(zip1, zip2) {
+function distanceBetween(zip, retailer) {
   return new Promise(function (fulfill, reject){
-    fulfill(2);
+    let query = {
+      "units": "imperial",
+      "origins": zip,
+      "destinations": retailer.zip_code,
+    };
+
+    fulfill([2, retailer]); 
+    return;
+
+    googleMapsClient.distanceMatrix(query, function(err, result) {
+      if (err) { reject(err); return; }
+      fulfill([milesFrom(result), retailer]);
+    });
+    
   });
-  //TODO: ask google for distance!!
-  // console.log("googleMapsClient.distanceMatrix:", googleMapsClient.distanceMatrix);
-  // let query = {
-  //   "units": "imperial",
-  //   "origins": "12345",
-  //   "destinations": "43214",
-  // };
-  // let distance = googleMapsClient.distanceMatrix(query, function(result) {
-  //   console.log("distanceMatrix result:", result);
-  // });
-  // console.log("distance:", distance);
-  // return 1;
 }
 
-function add(a, b) {
-    return a + b;
+//Google sometimes doesn't give results, so MAX_VALUE instead...
+function milesFrom(result) {
+  let firstElement = result.json.rows[0].elements[0];
+  if (firstElement.status === 'ZERO_RESULTS') {
+    return Number.MAX_VALUE;
+  } else {
+    return parseInt(firstElement.distance.text.slice(0,-3));
+  }
 }
 
-/*
-exports.distanceMatrix = {
-  url: 'https://maps.googleapis.com/maps/api/distancematrix/json',
-  validator: v.compose([
-    v.mutuallyExclusiveProperties(['arrival_time', 'departure_time']),
-    v.object({
-      origins: utils.pipedArrayOf(utils.latLng),
-      destinations: utils.pipedArrayOf(utils.latLng),
-      mode: v.optional(v.oneOf([
-        'driving', 'walking', 'bicycling', 'transit'
-      ])),
-      language: v.optional(v.string),
-      region: v.optional(v.string),
-      avoid: v.optional(utils.pipedArrayOf(v.oneOf([
-        'tolls', 'highways', 'ferries', 'indoor'
-      ]))),
-      units: v.optional(v.oneOf(['metric', 'imperial'])),
-      departure_time: v.optional(utils.timeStamp),
-      arrival_time: v.optional(utils.timeStamp),
-      transit_mode: v.optional(utils.pipedArrayOf(v.oneOf([
-        'bus', 'subway', 'train', 'tram', 'rail'
-      ]))),
-      transit_routing_preference: v.optional(v.oneOf([
-        'less_walking', 'fewer_transfers'
-      ])),
-      traffic_model: v.optional(v.oneOf([
-        'best_guess', 'pessimistic', 'optimistic'
-      ])),
-      retryOptions: v.optional(utils.retryOptions),
-      timeout: v.optional(v.number)
-    })
-  ])
-};
-
-*/
